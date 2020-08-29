@@ -1,0 +1,352 @@
+---
+title: "Does the leading digit of “naturally occurring numbers” (i.e., population and GDP per Capita) follow Benford’s law?"
+author: "Shuang Liu, Qiwei Men"
+date: "11/28/2019"
+output: 
+  prettydoc::html_pretty:
+    theme: cayman
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+library(gapminder)
+library(tidyverse)
+library(plotly)
+library(ggthemes)
+library(RColorBrewer)
+library(gifski)
+library(gganimate)
+# must install package "png" as well, but no need to library it
+```
+
+### Benford's Law
+
+- The law states that in many naturally occurring collections of numbers, the leading significant digit is likely to be small. For example, in sets that obey the law, the number 1 appears as the leading significant digit about 30% of the time, while 9 appears as the leading significant digit less than 5% of the time. 
+
+- A set of decimal numbers is said to satisfy Benford's law if the leading digit $d\ (d \in \{1, ..., 9\})$ occurs with probability $P(d) = log_{10}(\frac{d+1}{d}) = log_{10}(1+\frac{1}{d})$. The leading digits in such a set thus have the following distribution:
+
+```{r, echo = TRUE, warning = FALSE}
+# Benford's Law
+benlaw <- function (d){log10(1 + 1 / d)}
+digits <- 1:9
+barplot(benlaw(digits), names.arg = digits, xlab = NULL, ylim = c(0, .35))
+```
+
+### Leading digits of population and GDP per Capita in 2007
+
+- Using data from 2007, compare the observed distribution of the leading digits in population to the distribution predicted by Benford's law. 
+
+```{r, echo = TRUE}
+# function to extract the first digit of a number
+bben <- function(k){as.numeric(head(strsplit(as.character(k),'')[[1]],n=1))}
+```
+
+```{r, echo = TRUE, warning=FALSE}
+# compare Benford's law and the leading digits of population in 2007
+pop.prop.2007 <- gapminder %>%
+  subset(year == 2007) %>%
+  select(pop) %>%
+  rowwise() %>% 
+  mutate(digit = bben(pop)) %>%
+  table() %>%
+  colSums()/nrow(subset(gapminder, year == 2007)) %>% 
+  as.numeric()
+
+df <- rbind(data_frame(digit = 1:9, 
+                       proportion = pop.prop.2007,
+                       distribution = "Population 2007"),
+            data_frame(digit = 1:9, 
+                       proportion = benlaw(digit), 
+                       distribution = "Benford's Law"))
+
+ggplot(df, aes(digit, proportion)) + 
+  geom_col(aes(fill = distribution), position = "dodge") +
+  scale_x_continuous(breaks = 1:9)
+```
+
+- Using data from 2007, compare the observed distribution of the leading digits in GDP per Capita to the distribution predicted by Benford's law. 
+
+```{r, echo = FALSE}
+# compare Benford's law and the first digit of gdpPercap in 2007
+gdpPercap.prop.2007 <- gapminder %>%
+  subset(year == 2007) %>%
+  select(gdpPercap) %>%
+  rowwise() %>% 
+  mutate(digit = bben(gdpPercap)) %>%
+  table() %>%
+  colSums()/nrow(subset(gapminder, year == 2007)) %>% 
+  as.numeric()
+
+df <- rbind(data_frame(digit = 1:9, 
+                       proportion = gdpPercap.prop.2007,
+                       distribution = "gdpPercap 2007"),
+            data_frame(digit = 1:9, 
+                       proportion = benlaw(digit), 
+                       distribution = "Benford's Law"))
+
+ggplot(df, aes(digit, proportion)) + 
+  geom_col(aes(fill = distribution), position = "dodge") +
+  scale_x_continuous(breaks = 1:9)
+```
+
+## Chi-square Goodness-of-fit Test
+
+- Test if a sample of data came from a population with a specific distribution. The chi-square goodness-of-fit test can be applied to discrete distributions. In other words, it is used to determine whether there is a significant difference between the expected frequencies and the observed frequencies in one or more categories.
+
+- $H_0$:	The leading digits of population in 2007 follows Benford's law.
+- $H_a$:	The leading digits of population in 2007 does not follow Benford's law.
+
+- Chi-square Statistic:
+
+    - $Q_{k-1} = \sum_{i=1}^{k}\frac{(O_i-np_i)^2}{np_i}$
+
+    - $k$: number of digits (=9)
+
+    - $k-1$: degree of freedom (=8)
+
+    - $O_i$: observed count of digit $i$
+
+    - $n$: total number of observations
+
+    - $p_i$: probability of digit $i$ predicted by Benford's law.
+
+- Let's estimate the p-value by Monte Carlo.
+
+### Sampling distribution of the Chi-square statistic
+
+```{r, echo = TRUE}
+# function to simulate a sample of digits from Benford's Law and count the frequency of each digit
+count.sim <- function(n){
+  # n: sample size
+  sim <- sample(x=c(1:9), size=n, replace=TRUE, prob = benlaw(1:9))
+  count <- numeric()
+  for (i in 1:9){
+    count[i] <- sum(sim == i)
+  }
+  return(count)
+}
+```
+
+```{r, echo = TRUE}
+# sample size
+n <- nrow(subset(gapminder, year == 2007))
+# expected count for each digit from Benford's law
+E <- n*benlaw(1:9)
+```
+
+```{r, echo = TRUE, message=FALSE}
+# sampling distribution of Chi-square statistic
+hist(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)), main = "Sampling Distribution of Q (df = 8, n = 142)", xlab = "Q", breaks = 20, xlim = c(0,30))
+```
+
+
+### Critical Value for 2007 Population
+
+```{r, echo = TRUE}
+# observed count of each digit in 2007 data
+pop.count.2007 <- gapminder %>%
+  subset(year == 2007) %>%
+  select(pop) %>%
+  rowwise() %>% 
+  mutate(digit = bben(pop)) %>%
+  table() %>%
+  colSums() %>% 
+  as.numeric()
+
+# critical value
+pop.2007.crit <- sum((pop.count.2007-E)^2/E)
+```
+
+The critical value is **`r round(pop.2007.crit, 2)`**. 
+
+### P-value
+
+```{r, echo = TRUE}
+# p-value
+p.pop.2007 <- sum(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)) >= pop.2007.crit)/10000
+```
+
+The estimated p-value is **`r round(p.pop.2007, 2)`**.
+
+```{r, echo = FALSE}
+hist(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)), main = "Sampling Distribution of Q (df = 8, n = 142)", xlab = "Q", breaks = 20, xlim = c(0,30))
+
+abline(v=pop.2007.crit, col="blue")
+```
+
+```{r, echo = TRUE}
+# built-in function p-value
+bp1 <- pchisq(pop.2007.crit,8,lower.tail = FALSE)
+```
+
+The p-value given by the built-in function `pchisq` is **`r round(bp1, 2)`**, which is very similar to what we got from our Monte Carlo sampling distribution.
+
+### Critical Value and P-value for 2007 GDP per Capita
+
+```{r, echo = FALSE}
+gdp.count.2007 <- gapminder %>%
+  subset(year == 2007) %>%
+  select(gdpPercap) %>%
+  rowwise() %>% 
+  mutate(digit = bben(gdpPercap)) %>%
+  table() %>%
+  colSums() %>% 
+  as.numeric()
+gdp.2007.crit <- sum((gdp.count.2007-E)^2/E)
+```
+
+The critical value is **`r round(gdp.2007.crit, 2)`**. 
+
+```{r, echo = FALSE}
+p.gdp.2007 <- sum(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)) >= gdp.2007.crit)/10000
+```
+
+The estimated p-value is **`r round(p.gdp.2007, 2)`**.
+
+```{r, echo = FALSE}
+hist(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)), main = "Sampling Distribution of Q (df = 8, n = 142)", xlab = "Q", breaks = 20, xlim = c(0,30))
+
+abline(v=gdp.2007.crit, col="blue")
+```
+
+```{r, echo = FALSE}
+# built-in function p-value
+bp2 <- pchisq(gdp.2007.crit,8,lower.tail = FALSE)
+```
+
+The p-value given by the built-in function `pchisq` is **`r round(bp2, 2)`**, which is very similar to what we got from Monte Carlo.
+
+### The Whole Dataset
+
+### Compare empirical distribution and theoretical distribution
+
+```{r, echo = FALSE}
+# compare Benford's law and population
+pop.prop <- gapminder %>% 
+  select(pop) %>%
+  rowwise() %>% 
+  mutate(digit = bben(pop)) %>%
+  table() %>%
+  colSums()/nrow(gapminder) %>% 
+  as.numeric()
+
+df <- rbind(data_frame(digit = 1:9, 
+                       proportion = pop.prop,
+                       distribution = "Population"),
+            data_frame(digit = 1:9, 
+                       proportion = benlaw(digit), 
+                       distribution = "Benford's Law"))
+
+ggplot(df, aes(digit, proportion)) + 
+  geom_col(aes(fill = distribution), position = "dodge") +
+  scale_x_continuous(breaks = 1:9)
+
+```
+
+```{r, echo = FALSE}
+# compare Benford's law and gdpPercap
+gdpPercap.prop <- gapminder %>% 
+  select(gdpPercap) %>%
+  rowwise() %>% 
+  mutate(digit = bben(gdpPercap)) %>%
+  table() %>%
+  colSums()/nrow(gapminder) %>% 
+  as.numeric()
+
+df <- rbind(data_frame(digit = 1:9, 
+                       proportion = gdpPercap.prop,
+                       distribution = "gdpPercap"),
+            data_frame(digit= 1:9, 
+                       proportion = benlaw(digit), 
+                       distribution = "Benford's Law"))
+
+ggplot(df, aes(digit, proportion)) + 
+  geom_col(aes(fill = distribution), position = "dodge") +
+  scale_x_continuous(breaks = 1:9)
+
+```
+
+```{r, echo = FALSE}
+gdp.count <- gapminder %>%
+  select(gdpPercap) %>%
+  rowwise() %>% 
+  mutate(digit = bben(gdpPercap)) %>%
+  table() %>%
+  colSums() %>% 
+  as.numeric()
+
+pop.count <- gapminder %>%
+  select(pop) %>%
+  rowwise() %>% 
+  mutate(digit = bben(pop)) %>%
+  table() %>%
+  colSums() %>% 
+  as.numeric()
+```
+
+```{r, echo = FALSE}
+n <- nrow(gapminder)
+E <- n*benlaw(1:9)
+```
+
+### Sampling distribution:
+
+```{r, echo = FALSE}
+# sampling distribution of Chi-square statistic
+hist(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)), main = "Sampling Distribution of Q (df = 8, n = 1704)", xlab = "Q")
+```
+
+### Critical value and p-value, population
+
+```{r, echo = FALSE}
+pop.crit <- sum((pop.count-E)^2/E)
+p.pop <- sum(replicate(10000,chi <- sum((count.sim(n)-E)^2/E)) >= pop.crit)/10000
+```
+
+- The critical value is **`r round(pop.crit, 2)`**. The estimated p-value is **`r round(p.pop, 2)`**.
+
+```{r, echo = FALSE}
+hist(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)), main = "Sampling Distribution of Q (df = 8, n = 1704)", xlab = "Q")
+abline(v = pop.crit, col = 'blue')
+```
+
+```{r, echo = FALSE}
+bp4 <- pchisq(pop.crit,8,lower.tail = FALSE)
+```
+
+- The p-value given by the built-in function `pchisq` is **`r round(bp4, 2)`**, which is very similar to what we got from Monte Carlo.
+
+### Critical value and p-value, GDP per Capita
+
+```{r, echo = FALSE}
+gdp.crit <- sum((gdp.count-E)^2/E)
+p.gdp <- sum(replicate(10000,chi <- sum((count.sim(n)-E)^2/E)) >= gdp.crit)/10000
+```
+
+- The critical value is **`r round(gdp.crit, 2)`**. The estimated p-value is **`r round(p.gdp, 2)`**.
+
+```{r, echo = FALSE}
+hist(replicate(10000, chi <- sum((count.sim(n)-E)^2/E)), main = "Sampling Distribution of Q (df = 8, n = 1704)", xlab = "Q", breaks = 20)
+abline(v = gdp.crit, col = 'blue')
+```
+
+```{r, echo = FALSE}
+bp3 <- pchisq(gdp.crit,8,lower.tail = FALSE)
+```
+
+- The p-value given by the built-in function `pchisq` is **`r round(bp3, 2)`**, which is very similar to what we got from Monte Carlo.
+
+- In practice, applications of Benford's Law for fraud detection routinely use more than the first digit. 
+- Package: `benford.analysis` 
+- One can select the number of digits to do the test.
+
+```{r, echo = TRUE}
+# library(benford.analysis)
+# pop.bo2 <- benford(gapminder$pop, number.of.digits = 3)
+# chisq(pop.bo2)
+```
+
+
